@@ -1,0 +1,350 @@
+---
+title: "Projet Statistique génétique et génomique"
+author: "Hassan HOUSSEIN HOUMED"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ISLR)
+library(FactoMineR)
+library(ade4)
+library(factoextra)
+library(ComplexHeatmap)
+library(pls)
+library(plsgenomics)
+```
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+```
+
+```{r}
+library(golubEsets)
+```
+
+# [**Données NCI60**]{.ul}
+
+**Description du jeu de donnée :**
+
+```{r}
+data("NCI60")
+dim(NCI60$data)
+length(NCI60$labs)
+```
+
+    Ce jeu de donnée est constitué de data qui est une matrice constitué de 64 lignées cellulaires décrit par 6830 gènes tandis que labs est un vecteur listant les types de cancer pour les 64 lignées cellulaires.
+
+```{r}
+data_hassan <- data.frame(type=NCI60$labs,donne=NCI60$data)
+```
+
+### [Description de la méthode utilisée (ACP)]{.ul}
+
+L'analyse en composantes principales est une méthode d'analyse permettant d'explorer de vastes jeux de données multidimensionnels, reposant sur des variables quantitatives. Rattaché à la famille de la statistique multivariée, l'analyse en composantes principales (ACP) permet de transformer des variables corrélées en variables décorrélées baptisée "composantes principales". Plus précisément, cette méthode vise à réduire le nombre de variables appliquées à des individus, pour simplifier les observations tout en conservant un maximum d'informations. Seules une, deux ou trois variables dites "composantes principales" sont conservées.
+
+```{r}
+acp_has = PCA(data_hassan, graph=FALSE,quali.sup=1)
+plot(acp_has,axes=c(1,2),habillage = 1)
+```
+
+### [Description de la méthode utilisée (Classification Ascendante Hièrarchique)]{.ul}
+
+La méthode du classification ascendantes hiérarchique (CAH) consiste à produire une suite de partitions emboitées par regroupement successifs de parties.
+
+**Une CAH sur un ensemble I d'individus nécessite :** 1. La définition d'un critère de dissimilarité δ 2. La définition d'un critère d'agrégation mesurant la dissimilarité entre deux parties disjointes, ∆ : P(I) × P(I) → R+
+
+**Algorithme de la CAH** Initialisation. P0 = {{e1}, . . . , {en}} Itérations. On passe de la partition Pk en n − k classes à la partition Pk+1 à (n − k − 1) classes en regroupant les deux classes de Pk les plus proches au sens du critère d'agrégation ∆, i.e. on regroupe A et B si ∆(A, B) = min{∆(C, D), C != D ∈ Pk} Fin. L'algorithme s'achève à l'étape n − 1, et Pn−1 = {I }.
+
+Tout d'abord, ils existent plusieurs types des distances à calculer pour calculer le critère de dissimilarité donné mais moi j'utilise la distance euclidienne pour calculer le critère de dissimilarité donné parceque tout mes variables sont de même unité de mesure i.e ces sont tous des gènes.
+
+j'essaye de chercher la meilleur strategie d'aggregation pour pouvoir classifier les types cellulaires en une partition optimale.
+
+```{r}
+strat <- c("single","complete","ward.D2","average")
+
+par(mfrow=c(2,2))
+     
+    diss <- dist.quant(NCI60$data,method=1)
+    
+    for( i in strat){
+     plot(hclust(diss,method=i),hang=-1,main=paste(i)) 
+    }
+```
+
+En utilisant le critère du saut maximale ∆ alors la partition optimale est obtenue en utilisant la strategie de ward.D2
+
+Je choisis de travailler en utilisant la strategie de ward.D2
+
+```{r}
+h1 <- dist.quant(NCI60$data,method=1)
+h2 <- hclust(h1,method="ward.D2")
+plot(h2,hang=-1,main="Dendogramme")
+```
+
+```{r}
+which.max(diff(h2$height))
+h2$height[60:61]
+```
+
+Je decoupe mon dendogramme entre cette intervalle \[ 148.9644 - 192.6257 \] en utilisant le critère du saut maximale ∆ et donc on trouve que la partition optimale est celle en 4 classes.
+
+```{r,warning=FALSE}
+fviz_dend(h2,main="Dendogramme",cex=0.7,k=4,rect=TRUE,palette="rickandmorty")
+```
+
+```{r}
+cl1 <- cutree(h2,h=150)
+cl2 <- NCI60$labs
+table(cl1,cl2)
+```
+
+[**Remarque :**]{.ul}
+
+Je remarque que la classe 1 regroupe les lignées cellulaires dont les types de cancer sont BREAST,CNS,RENAL et UNKNOWN ensuite la classe 2 regroupe les lignées cellulaires dont les types de cancer sont COLON,MCF7A-repro,MCF7D-repro,NSCLC,OVARIAN et PROSTATE puis la classe 3 regroupe les lignées cellulaires dont les types de cancer sont K562A-repro et LEUKEMIA et enfin la classe 4 regroupe les lignées cellulaires dont les types de cancer sont BREAST et MELANOMA.
+
+# Données cancer prostate
+
+```{r}
+prostate <- read.csv("http://web.stanford.edu/~hastie/CASI_files/DATA/prostmat.csv")
+```
+
+```{r}
+prostate2 <- t(prostate)
+dim(prostate2)
+```
+
+```{r}
+sequence <- rep(c("non","oui"),c(50,52))
+prostate3 <- data.frame(statut=sequence,prostate2)
+```
+
+[**ACP :**]{.ul}
+
+```{r}
+acp_has2 = PCA(prostate3, graph=FALSE,quali.sup=1)
+plot(acp_has2,axes=c(1,2),habillage = 1)
+```
+
+```{r}
+round(acp_has2$eig,2)
+```
+
+Je remarque que les 71 premiers composantes renferment 80.69 % de la variance expliqué donc je peux contenter de travailler sur les 71 premiers axes dans la suite.
+
+```{r,warning=FALSE}
+acp_has3 = PCA(prostate3, graph=FALSE,quali.sup=1,ncp=71)
+reg <- data.frame(statut=sequence,acp_has3$ind$coord)
+reg$statut <- as.factor(reg$statut)
+reg$statut <- ifelse(reg$statut=="oui",1,0)
+reg_log <- glm(statut~.,data=reg,family="binomial")
+summary(reg_log)
+```
+
+D'abord, j'essaye de trouver combien de gènes sont difféntiellement exprimés sans correction pour les tests multiples à un seuil alpha de 5% et de savoir comment sont distribuées les P-values.
+
+j'effectué pour cela l'analyse différentielle sur l'ensemble des gènes à l'aide de la fonction **apply** et je récupéré la P-value pour chaque test puis généré l'histogramme des P-values.
+
+[**Tests multiples**]{.ul}
+
+```{r}
+ttpv = apply(prostate2, 2, function(x){t.test(x~factor(prostate3$statut))$p.value})
+sum(ttpv<0.05) # 478 gènes sont difféntiellement exprimés sans correction pour les tests multiples à un seuil alpha de 5%
+
+hist(ttpv,main="Histogramme des P-values",xlab="P-values du test statistique.",
+     sub="Malade vs Sains",ylab="Frequence",col="red")
+```
+
+je cherche de trouver combien de gènes sont difféntiellement exprimés avec correction pour les tests multiples (Benjamini-Hochberg et Bonferroni) à un seuil de 5% et de connaitre comment sont distribuées les P-values ajustées.
+
+J'utilise la fonction **p.adjust** pour la correction des tests multiples.
+
+[**Correction des Tests multiples**]{.ul}
+
+```{r}
+
+ttpvBH=p.adjust(ttpv,method="BH")
+ttpvBonf=p.adjust(ttpv,method="bonferroni")
+
+sum(ttpvBH<0.05)   # 21 gènes sont difféntiellement exprimés avec correction pour les tests multiples en utilisant la méthode de Benjamini-Hochberg à un seuil alpha de 5%
+
+
+sum(ttpvBonf<0.05)  # 2 gènes sont difféntiellement exprimés avec correction pour les tests multiples en utilisant la méthode de Bonferroni à un seuil alpha de 5%
+
+
+par(mfrow=c(1,2))
+hist(ttpvBH,main="Histogramme des adj P-values (BH)",xlab="P-values corrigées du test.",
+     sub="Malade vs Sains",ylab="Frequence",xlim=c(0,1),col="blue")
+
+hist(ttpvBonf,main="Histogramme des adj-P-values (Bonf.)",xlab="P-values corrigées du test statistique.",
+     sub="Malade vs Sains",ylab="Frequence",xlim=c(0,1),col="green")
+
+```
+
+Je cherche à connaitre si l'expression de gènes différentiels est-elle homogène au sein des patients atteints du cancer.
+
+Pour cela, je réalise une heatmap : représentation de la matrice d'expression restreinte aux gènes DE sous forme de carte de chaleur avec un dendrogramme en ligne et en colonne permettant de regrouper des patterns d'expression similaires. j'utilise la fonction **Heatmap** du package **ComplexHeatmap**.
+
+Je selectionne cette fois-ci les gènes différentiels avec un seuil sur les P-values ajustées par BH à 5 %.
+
+```{r}
+
+selecDE = which(ttpvBH<=0.05)
+length(selecDE)
+
+dataH = prostate[selecDE,]
+ha = HeatmapAnnotation(statut = prostate3[,1],
+col = list("statut"= c("oui" = "red", "non" = "green")))
+
+Heatmap(as.matrix(dataH),row_names_gp = gpar(fontsize = 5), column_names_gp = gpar(fontsize = 7),clustering_distance_rows = "pearson",
+clustering_method_rows = "ward.D",
+clustering_distance_columns = "pearson",
+clustering_method_columns = "ward.D", name = " ", top_annotation = ha, column_title = "H1")
+```
+
+[**Remarque :**]{.ul}
+
+Je remarque que les gènes qui sont sous-exprimés chez les personnes sains sont ainsi sur-exprimés chez les personnes atteints du cancer prostate.
+
+# [Données Golub]{.ul}
+
+```{r}
+data("Golub_Merge")
+
+x <- exprs(Golub_Merge)
+x[x < 100] <- 100
+x[x > 16000] <- 16000
+emax <- apply(x, 1, max)
+emin <- apply(x, 1, min)
+x <- x[emax/emin > 5 & emax - emin > 500, ]
+x <- log10(x)
+x <- t(scale(t(x)))
+x = data.frame(x)
+```
+
+[**Regression Logistique :**]{.ul}
+
+La régression logistique est un modèle statistique permettant d'étudier les relations entre un ensemble de variables qualitatives Xi et une variable qualitative Y. Il s'agit d'un modèle linéaire généralisé utilisant une fonction logistique comme fonction de lien. 
+
+Un modèle de régression logistique permet aussi de prédire la probabilité qu'un événement arrive (valeur de 1) ou non (valeur de 0) à partir de l'optimisation des coefficients de régression. Ce résultat varie toujours entre 0 et 1. Lorsque la valeur prédite est supérieure à un seuil, l'événement est susceptible de se produire, alors que lorsque cette valeur est inférieure au même seuil, il ne l'est pas.
+
+```{r,warning=FALSE}
+
+set.seed(123)
+
+statut = as.numeric(Golub_Merge$ALL.AML) - 1
+
+p = 3
+donnee = data.frame(X = I(t(x)), Y = statut)
+
+train <- rbinom(length(donnee$Y),1,0.80) 
+donnee.train <- c()
+donnee.test <- c()
+donnee.train$X <- donnee$X[train==1,] # donnee.train est une liste avec deux éléments
+
+donnee.train$Y <- donnee$Y[train==1]
+donnee.test$X <- donnee$X[train==0,] # donnee.test est une liste avec deux éléments
+donnee.test$Y <- donnee$Y[train==0] 
+
+x_train_centered = scale(donnee.train$X, center = TRUE, scale = FALSE)
+pcrdonnee <- pcr(Y ~ X, data = donnee.train,
+                ncomp = 30, scale = FALSE, # pour accélerer les calculs on prends uniquement les 30 premières composantes
+                validation="none") # on ne fait pas de validaton croisée
+ncomponents <- 10 # on prend seulement les 10 premiers composantes principales
+reduction.matrix <- pcrdonnee$loadings[,1:ncomponents] 
+donnee.train$reducedX <- x_train_centered %*% reduction.matrix 
+
+pca.model <- glm(Y ~ reducedX, data = donnee.train, family = binomial)
+summary(pca.model)
+```
+
+Je remarque que dans mon modèle de regression logistique , toutes les coefficients sont non-significatifs donc j'essaye de diminuer les nombres des composantes.
+
+```{r,warning=FALSE}
+ncomponents2 <- 2 # on prend seulement les 2 premiers composantes principales
+reduction.matrix2 <- pcrdonnee$loadings[,1:ncomponents2] 
+donnee.train$reducedX <- x_train_centered %*% reduction.matrix2 
+
+pca.model2 <- glm(Y ~ reducedX, data = donnee.train, family = binomial)
+summary(pca.model2)
+```
+
+```{r}
+bar_donnee_train <- matrix(rep(apply(donnee.train$X, 2, mean), rep(nrow(donnee.test$X), ncol(donnee.train$X))), ncol = ncol(donnee.train$X))
+
+x_test_centered <- donnee.test$X - bar_donnee_train
+
+donnee.test$reducedX <- x_test_centered %*% reduction.matrix2
+test.prediction <- predict(pca.model2, newdata = donnee.test, type = "response")
+
+mean((donnee.test$Y - test.prediction)^2)
+
+Yhat <- ifelse(test.prediction > 0.5, 1, 0)
+
+table(donnee.test$Y, Yhat)
+```
+
+Je remarque que 10 observations sont bien classés d'après la prediction de mon regression logistique et 5 observation sont mal classé.
+
+[**PLS :**]{.ul}
+
+Comme son nom l'indique, la régression PLS est une méthode de régression avec laquelle on va tenter d'expliquer des variables Y par des variables X.
+
+On utilise un algorithme itératif assez simple basé sur des composantes et des régressions linéaires entre ces composantes.
+
+    PLS + régression sur scores + mesure de la performance de la prédiction
+
+```{r}
+plsdonnee <- plsr(Y ~ X, data = donnee.train,
+                 ncomp = 20, scale = FALSE, 
+                 validation = "none")
+summary(plsdonnee)
+```
+
+```{r,warning=FALSE}
+# Estimons le modèle de régression logistique Y ~ Z, où Z sont les 
+# scores calculé par la PLS
+ncomponents = 5  # 99.47% de la variance des Y expliquée
+pls.reduction.matrix <- plsdonnee$loadings[, 1:ncomponents]   
+donnee.train$pls.reducedX <- x_train_centered %*% pls.reduction.matrix
+pls.model <- glm(Y ~ pls.reducedX, data = donnee.train, family = binomial)
+summary(pls.model)
+```
+
+Je remarque que dans mon modèle de regression logistique , toutes les coefficients sont non-significatifs donc j'essaye de diminuer les nombres des composantes et pour cela pour trouver les nombres des composantes idéale , j'utilise la méthode de validation par croisé.
+
+```{r}
+plsdonnee2 <- plsr(Y ~ X, data = donnee.train,
+                 ncomp = 20, scale = FALSE, 
+                 validation = "CV")
+summary(plsdonnee2)
+```
+
+Je constate qu'il faut que je garde que deux composantes d'après la validation par croisé.
+
+```{r,warning=FALSE}
+# Estimons le modèle de régression logistique Y ~ Z, où Z sont les 
+# scores calculé par la PLS
+ncomponents2 = 2  
+pls.reduction.matrix2 <- plsdonnee$loadings[, 1:ncomponents2]   
+donnee.train$pls.reducedX2 <- x_train_centered %*% pls.reduction.matrix2
+pls.model2 <- glm(Y ~ pls.reducedX2, data = donnee.train, family = binomial)
+summary(pls.model2)
+```
+
+Donc je conclu que même en gardant tout simplement deux composantes d'après la méthode de validation par croisé, je remarque que dans mon modèle de regression logistique , toutes les coefficients sont non-significatifs.
+
+```{r}
+# Estimons l'erreur quadratique moyen de mon modèle à partir des données de test
+donnee.test$pls.reducedX2 <- x_test_centered %*% pls.reduction.matrix2
+test.prediction2 <- predict(pls.model2, newdata = donnee.test, type="response")
+mean((test.prediction2-donnee.test$Y)^2)
+```
+
+Je remarque que l'erreur quadratique moyen de mon modèle à partir des données de test est très pétite donc la qualité de prediction de mon modèle est globalement pertinente.
